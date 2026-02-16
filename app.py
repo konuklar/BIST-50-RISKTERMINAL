@@ -5,11 +5,8 @@ import yfinance as yf
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-import matplotlib.pyplot as plt
-import seaborn as sns
 from scipy.optimize import minimize
 from datetime import datetime, timedelta
-import requests
 import time
 import warnings
 warnings.filterwarnings('ignore')
@@ -51,85 +48,22 @@ st.markdown("""
         color: #059669;
         font-weight: 600;
     }
-    .info-box {
-        background-color: #EFF6FF;
-        padding: 1rem;
-        border-radius: 0.5rem;
-        border-left: 4px solid #2563EB;
-        margin: 1rem 0;
+    .data-source-badge {
+        background-color: #1E3A8A;
+        color: white;
+        padding: 0.3rem 0.8rem;
+        border-radius: 1rem;
+        font-size: 0.8rem;
+        display: inline-block;
+        margin-bottom: 1rem;
     }
     </style>
 """, unsafe_allow_html=True)
 
-class BIST50DataFetcher:
-    """Alternative data sources for BIST stocks"""
-    
-    @staticmethod
-    def get_ticker_mappings():
-        """Alternative ticker formats for BIST stocks"""
-        return {
-            # Different formats that might work
-            'AKBNK.IS': ['AKBNK.IS', 'AKBNK.IS', 'AKBNK.IS'],
-            'ARCLK.IS': ['ARCLK.IS', 'ARCLK.IS', 'ARCLK.IS'],
-            'ASELS.IS': ['ASELS.IS', 'ASELS.IS', 'ASELS.IS'],
-            'BIMAS.IS': ['BIMAS.IS', 'BIMAS.IS', 'BIMAS.IS'],
-            'EKGYO.IS': ['EKGYO.IS', 'EKGYO.IS', 'EKGYO.IS'],
-            'EREGL.IS': ['EREGL.IS', 'EREGL.IS', 'EREGL.IS'],
-            'FROTO.IS': ['FROTO.IS', 'FROTO.IS', 'FROTO.IS'],
-            'GARAN.IS': ['GARAN.IS', 'GARAN.IS', 'GARAN.IS'],
-            'HALKB.IS': ['HALKB.IS', 'HALKB.IS', 'HALKB.IS'],
-            'ISCTR.IS': ['ISCTR.IS', 'ISCTR.IS', 'ISCTR.IS'],
-            'KCHOL.IS': ['KCHOL.IS', 'KCHOL.IS', 'KCHOL.IS'],
-            'KOZAL.IS': ['KOZAL.IS', 'KOZAL.IS', 'KOZAL.IS'],
-            'KRDMD.IS': ['KRDMD.IS', 'KRDMD.IS', 'KRDMD.IS'],
-            'PETKM.IS': ['PETKM.IS', 'PETKM.IS', 'PETKM.IS'],
-            'PGSUS.IS': ['PGSUS.IS', 'PGSUS.IS', 'PGSUS.IS'],
-            'SAHOL.IS': ['SAHOL.IS', 'SAHOL.IS', 'SAHOL.IS'],
-            'SASA.IS': ['SASA.IS', 'SASA.IS', 'SASA.IS'],
-            'TCELL.IS': ['TCELL.IS', 'TCELL.IS', 'TCELL.IS'],
-            'THYAO.IS': ['THYAO.IS', 'THYAO.IS', 'THYAO.IS'],
-            'TOASO.IS': ['TOASO.IS', 'TOASO.IS', 'TOASO.IS']
-        }
-    
-    @staticmethod
-    @st.cache_data(ttl=86400)  # Cache for 24 hours
-    def fetch_from_yfinance(ticker, start_date, end_date):
-        """Fetch data from Yahoo Finance with retry logic"""
-        max_retries = 3
-        for attempt in range(max_retries):
-            try:
-                stock = yf.Ticker(ticker)
-                hist = stock.history(start=start_date, end=end_date)
-                if not hist.empty:
-                    return hist['Close']
-                time.sleep(1)  # Wait before retry
-            except:
-                time.sleep(2)
-        return None
-    
-    @staticmethod
-    def fetch_sample_data():
-        """Provide sample/demo data when APIs fail"""
-        dates = pd.date_range(start='2020-01-01', end=datetime.now(), freq='B')
-        np.random.seed(42)
-        
-        sample_prices = {}
-        
-        # Generate realistic price paths for demo
-        for ticker in BIST50RiskAnalyzer.tickers:
-            # Base price
-            base_price = np.random.uniform(10, 100)
-            # Generate random walk
-            returns = np.random.normal(0.0005, 0.02, len(dates))
-            prices = base_price * np.exp(np.cumsum(returns))
-            sample_prices[ticker] = prices
-        
-        return pd.DataFrame(sample_prices, index=dates)
-
 class BIST50RiskAnalyzer:
-    """Risk Budgeting Analysis for BIST 50 Stocks"""
+    """Risk Budgeting Analysis for BIST 50 Stocks using Yahoo Finance"""
     
-    # Static tickers list
+    # Yahoo Finance BIST tickers (verified working format)
     tickers = [
         'AKBNK.IS', 'ARCLK.IS', 'ASELS.IS', 'BIMAS.IS', 'EKGYO.IS',
         'EREGL.IS', 'FROTO.IS', 'GARAN.IS', 'HALKB.IS', 'ISCTR.IS',
@@ -137,29 +71,31 @@ class BIST50RiskAnalyzer:
         'SAHOL.IS', 'SASA.IS', 'TCELL.IS', 'THYAO.IS', 'TOASO.IS'
     ]
     
+    # Company names
     asset_names = {
         'AKBNK.IS': 'Akbank',
-        'ARCLK.IS': 'Arçelik',
+        'ARCLK.IS': 'Arcelik',
         'ASELS.IS': 'Aselsan',
-        'BIMAS.IS': 'BİM',
+        'BIMAS.IS': 'BIM',
         'EKGYO.IS': 'Emlak Konut',
-        'EREGL.IS': 'Ereğli Demir Çelik',
+        'EREGL.IS': 'Eregli Demir Celik',
         'FROTO.IS': 'Ford Otosan',
         'GARAN.IS': 'Garanti BBVA',
         'HALKB.IS': 'Halkbank',
-        'ISCTR.IS': 'İş Bankası',
-        'KCHOL.IS': 'Koç Holding',
-        'KOZAL.IS': 'Koza Altın',
+        'ISCTR.IS': 'Is Bankasi',
+        'KCHOL.IS': 'Koc Holding',
+        'KOZAL.IS': 'Koza Altin',
         'KRDMD.IS': 'Kardemir',
         'PETKM.IS': 'Petkim',
         'PGSUS.IS': 'Pegasus',
-        'SAHOL.IS': 'Sabancı Holding',
+        'SAHOL.IS': 'Sabanci Holding',
         'SASA.IS': 'SASA Polyester',
         'TCELL.IS': 'Turkcell',
-        'THYAO.IS': 'Türk Hava Yolları',
-        'TOASO.IS': 'Tofaş'
+        'THYAO.IS': 'Turkish Airlines',
+        'TOASO.IS': 'Tofas'
     }
     
+    # Sectors
     sectors = {
         'AKBNK.IS': 'Banking',
         'ARCLK.IS': 'Industrial',
@@ -184,183 +120,163 @@ class BIST50RiskAnalyzer:
     }
     
     def __init__(self):
-        self.data_fetcher = BIST50DataFetcher()
         self.data_loaded = False
         
-    @st.cache_data(ttl=3600)
-    def fetch_data(_self, start_date, end_date, use_demo_data=False):
-        """Fetch stock data with multiple fallback options"""
-        
-        if use_demo_data:
-            st.info("📊 Demo verisi kullanılıyor - Gerçek veri bağlantısı kurulamadı")
-            prices = _self.data_fetcher.fetch_sample_data()
-            returns = prices.pct_change().dropna()
-            return prices, returns, "demo"
+    @st.cache_data(ttl=3600, show_spinner=False)
+    def fetch_yahoo_data(_self, start_date, end_date):
+        """
+        Fetch data directly from Yahoo Finance with proper error handling
+        Uses batch download for efficiency
+        """
         
         try:
-            with st.spinner('📥 Veri indiriliyor (Yahoo Finance)...'):
-                # Try primary data source
-                all_prices = {}
-                failed_tickers = []
-                
-                # Create progress bar
-                progress_bar = st.progress(0)
-                status_text = st.empty()
-                
-                for i, ticker in enumerate(_self.tickers):
-                    status_text.text(f"İndiriliyor: {_self.asset_names.get(ticker, ticker)}")
-                    
-                    # Try different ticker formats
-                    price_data = None
-                    
-                    # Try original ticker
-                    price_data = _self.data_fetcher.fetch_from_yfinance(
-                        ticker, start_date, end_date
-                    )
-                    
-                    if price_data is not None:
-                        all_prices[ticker] = price_data
-                    else:
-                        failed_tickers.append(ticker)
-                    
-                    # Update progress
-                    progress_bar.progress((i + 1) / len(_self.tickers))
-                
-                progress_bar.empty()
-                status_text.empty()
-                
-                if len(all_prices) == 0:
-                    # If all failed, try alternative approach
-                    st.warning("Yahoo Finance bağlantısı başarısız, alternatif yöntem deneniyor...")
-                    
-                    # Try batch download
+            # Convert dates to string format
+            start_str = start_date.strftime('%Y-%m-%d')
+            end_str = end_date.strftime('%Y-%m-%d')
+            
+            # Progress indicators
+            progress_placeholder = st.empty()
+            progress_placeholder.info("🔄 Connecting to Yahoo Finance...")
+            
+            # Download all tickers at once (more efficient)
+            data = yf.download(
+                tickers=_self.tickers,
+                start=start_str,
+                end=end_str,
+                progress=False,
+                group_by='ticker',
+                auto_adjust=True,
+                timeout=30,
+                threads=True
+            )
+            
+            progress_placeholder.empty()
+            
+            if data.empty:
+                st.error("No data received from Yahoo Finance. Please check your internet connection.")
+                return None, None
+            
+            # Extract Adjusted Close prices
+            if len(_self.tickers) == 1:
+                # Single ticker case
+                prices = pd.DataFrame({_self.tickers[0]: data['Adj Close']})
+            else:
+                # Multi-ticker case
+                try:
+                    # Try to get Adj Close from multi-index
+                    prices = data.xs('Adj Close', axis=1, level=0)
+                except:
                     try:
-                        data = yf.download(
-                            _self.tickers,
-                            start=start_date,
-                            end=end_date,
-                            progress=False,
-                            auto_adjust=True,
-                            timeout=10
-                        )
-                        
-                        if not data.empty:
-                            if 'Adj Close' in data:
-                                prices = data['Adj Close']
-                            elif 'Close' in data:
-                                prices = data['Close']
-                            else:
-                                prices = data
-                            
-                            returns = prices.pct_change().dropna()
-                            return prices, returns, "yfinance_batch"
+                        # Try alternative structure
+                        prices = data['Adj Close']
                     except:
-                        pass
-                    
-                    # If still failed, use demo data
-                    st.warning("⚠️ Gerçek veri alınamadı. Demo verisi ile devam ediliyor.")
-                    prices = _self.data_fetcher.fetch_sample_data()
-                    returns = prices.pct_change().dropna()
-                    return prices, returns, "demo"
-                
-                # Create DataFrame from successful downloads
-                prices = pd.DataFrame(all_prices)
-                
-                if len(prices.columns) < len(_self.tickers):
-                    st.warning(f"⚠️ {len(failed_tickers)} hisse indirilemedi. Mevcut verilerle devam ediliyor.")
-                    if failed_tickers:
-                        st.write("İndirilemeyen hisseler:", 
-                                [f"{t} ({_self.asset_names.get(t, t)})" for t in failed_tickers])
-                
-                # Calculate returns
-                returns = prices.pct_change().dropna()
-                
-                return prices, returns, "yfinance_individual"
-                
-        except Exception as e:
-            st.error(f"Veri indirme hatası: {str(e)}")
-            st.info("Demo verisi kullanılıyor...")
-            prices = _self.data_fetcher.fetch_sample_data()
+                        # Fall back to Close prices
+                        if 'Close' in data:
+                            prices = data['Close']
+                        else:
+                            prices = data
+            
+            # Ensure we have a DataFrame
+            if isinstance(prices, pd.Series):
+                prices = pd.DataFrame(prices)
+            
+            # Clean data
+            # Remove any columns that are all NaN
+            prices = prices.dropna(axis=1, how='all')
+            
+            # Forward fill missing values (max 3 days for holidays)
+            prices = prices.fillna(method='ffill', limit=3)
+            
+            # Remove any remaining NaN rows
+            prices = prices.dropna()
+            
+            # Calculate returns
             returns = prices.pct_change().dropna()
-            return prices, returns, "demo"
+            
+            if returns.empty:
+                st.error("No valid returns data could be calculated.")
+                return None, None
+            
+            return prices, returns
+            
+        except Exception as e:
+            st.error(f"Yahoo Finance connection error: {str(e)}")
+            st.info("Please try again in a few moments or contact support if the issue persists.")
+            return None, None
     
-    def calculate_risk_metrics(self, returns, weights):
-        """Calculate comprehensive risk metrics"""
+    def calculate_risk_metrics(self, returns):
+        """Calculate comprehensive risk metrics for equally weighted portfolio"""
         
-        # Filter returns to only include columns that exist
-        available_tickers = returns.columns.tolist()
-        weights_dict = {t: w for t, w in zip(self.tickers, weights) if t in available_tickers}
+        n_assets = len(returns.columns)
+        weights = np.ones(n_assets) / n_assets
         
-        if not weights_dict:
-            st.error("Hiçbir hisse için veri bulunamadı!")
-            return None, None, None
-        
-        # Recalculate weights for available tickers
-        available_weights = np.array(list(weights_dict.values()))
-        available_weights = available_weights / available_weights.sum()
-        available_tickers = list(weights_dict.keys())
-        
-        # Filter returns
-        returns_filtered = returns[available_tickers]
-        
-        # Annualized covariance matrix
-        cov_matrix = returns_filtered.cov() * 252
+        # Annualized covariance matrix (252 trading days)
+        cov_matrix = returns.cov() * 252
         
         # Portfolio metrics
-        portfolio_variance = available_weights @ cov_matrix @ available_weights
+        portfolio_variance = weights @ cov_matrix @ weights
         portfolio_volatility = np.sqrt(portfolio_variance)
         
         # Individual volatilities
         indiv_vol = np.sqrt(np.diag(cov_matrix))
         
         # Marginal Risk Contributions (MRC)
-        marginal_risk = (cov_matrix @ available_weights) / portfolio_volatility
+        marginal_risk = (cov_matrix @ weights) / portfolio_volatility
         
         # Component Risk Contributions (CRC)
-        component_risk = available_weights * marginal_risk
+        component_risk = weights * marginal_risk
         
         # Percentage contributions
         pct_contributions = (component_risk / portfolio_volatility) * 100
         
         # Create DataFrame
         risk_metrics = pd.DataFrame({
-            'Sembol': available_tickers,
-            'Şirket': [self.asset_names.get(t, t) for t in available_tickers],
-            'Sektör': [self.sectors.get(t, 'Diğer') for t in available_tickers],
-            'Weight': available_weights,
+            'Symbol': returns.columns,
+            'Company': [self.asset_names.get(t, t) for t in returns.columns],
+            'Sector': [self.sectors.get(t, 'Other') for t in returns.columns],
+            'Weight': weights,
             'Individual_Volatility': indiv_vol,
             'Marginal_Risk_Contribution': marginal_risk,
             'Component_Risk': component_risk,
-            'Risk_Contribution_Pct': pct_contributions
+            'Risk_Contribution_%': pct_contributions
         })
         
         # Sort by risk contribution
-        risk_metrics = risk_metrics.sort_values('Risk_Contribution_Pct', ascending=False)
+        risk_metrics = risk_metrics.sort_values('Risk_Contribution_%', ascending=False)
         risk_metrics['Risk_Rank'] = range(1, len(risk_metrics) + 1)
         
         # Calculate betas
-        portfolio_returns = returns_filtered @ available_weights
+        portfolio_returns = returns @ weights
         betas = []
-        for col in available_tickers:
-            cov = returns_filtered[col].cov(portfolio_returns) * 252
+        for col in returns.columns:
+            cov = returns[col].cov(portfolio_returns) * 252
             beta = cov / portfolio_variance
             betas.append(beta)
         
         risk_metrics['Beta'] = betas
         
         # Calculate diversification ratio
-        weighted_avg_vol = np.sum(available_weights * indiv_vol)
-        risk_metrics['Diversification_Ratio'] = weighted_avg_vol / portfolio_volatility
+        weighted_avg_vol = np.sum(weights * indiv_vol)
+        diversification_ratio = weighted_avg_vol / portfolio_volatility
         
-        return risk_metrics, portfolio_volatility, cov_matrix
+        portfolio_metrics = {
+            'volatility': portfolio_volatility,
+            'diversification_ratio': diversification_ratio,
+            'n_assets': n_assets,
+            'avg_volatility': indiv_vol.mean(),
+            'max_risk_contrib': risk_metrics.iloc[0]['Risk_Contribution_%'],
+            'max_risk_asset': risk_metrics.iloc[0]['Company']
+        }
+        
+        return risk_metrics, portfolio_metrics, cov_matrix
     
-    def risk_parity_optimization(self, cov_matrix, tickers):
+    def calculate_risk_parity(self, cov_matrix, returns_columns):
         """Calculate risk parity weights"""
         
-        n = len(tickers)
+        n = len(returns_columns)
         
         def risk_parity_objective(weights):
-            weights = weights / weights.sum()
+            weights = weights / np.sum(weights)
             portfolio_var = weights @ cov_matrix @ weights
             portfolio_vol = np.sqrt(portfolio_var)
             
@@ -390,7 +306,7 @@ class BIST50RiskAnalyzer:
         )
         
         if result.success:
-            return result.x / result.x.sum()
+            return result.x / np.sum(result.x)
         else:
             return init_weights
 
@@ -399,16 +315,15 @@ def main():
     st.markdown('<p class="main-header">📊 BIST 50 Risk Budgeting Dashboard</p>', 
                 unsafe_allow_html=True)
     
-    # Info box about data source issues
     st.markdown("""
-    <div class="info-box">
-        <strong>🔔 Veri Kaynağı Bilgisi:</strong> Yahoo Finance API'sinde yaşanan güncel sorunlar nedeniyle 
-        bazı hisse verilerine erişim sağlanamamaktadır. Uygulama otomatik olarak:
-        <ul>
-            <li>Önce gerçek veri kaynaklarını dener</li>
-            <li>Başarısız olursa demo verisi ile çalışır</li>
-            <li>Tüm hesaplamaları mevcut veriler üzerinden yapar</li>
-        </ul>
+    This dashboard analyzes **Marginal Risk Contributions (MRC)** and provides **Risk Budgeting** 
+    recommendations for an equally weighted portfolio of 20 major BIST 50 stocks.
+    """)
+    
+    # Data source badge
+    st.markdown("""
+    <div class="data-source-badge">
+        📡 Data Source: Yahoo Finance (Real-time)
     </div>
     """, unsafe_allow_html=True)
     
@@ -417,155 +332,155 @@ def main():
     
     # Sidebar
     with st.sidebar:
-        st.markdown("## 🏢 BIST 50 Risk Analizi")
+        st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/5/54/Borsa_Istanbul_logo.svg/200px-Borsa_Istanbul_logo.svg.png", 
+                 width=150)
         
-        st.markdown("### ⚙️ Parametreler")
-        
-        # Data source option
-        use_demo = st.checkbox(
-            "Demo Verisi Kullan (Hızlı Test)",
-            value=False,
-            help="Gerçek veri yerine örnek veri seti kullanır"
-        )
+        st.markdown("## ⚙️ Parameters")
         
         # Date range selection
         col1, col2 = st.columns(2)
         with col1:
             start_date = st.date_input(
-                "Başlangıç",
-                datetime(2020, 1, 1)
+                "Start Date",
+                datetime(2020, 1, 1),
+                max_value=datetime.now() - timedelta(days=30)
             )
         with col2:
             end_date = st.date_input(
-                "Bitiş",
-                datetime.now()
+                "End Date",
+                datetime.now(),
+                max_value=datetime.now()
             )
+        
+        # Ensure dates are valid
+        if start_date >= end_date:
+            st.error("Start date must be before end date")
+            st.stop()
         
         # Portfolio type
         portfolio_type = st.radio(
-            "Portföy Tipi",
-            ["Eşit Ağırlıklı", "Risk Parity (Optimize)"],
-            help="Eşit ağırlıklı veya risk parity optimizasyonu seçin"
+            "Portfolio Type",
+            ["Equal Weight", "Risk Parity (Optimized)"],
+            help="Equal weight portfolio or risk parity optimization"
         )
         
-        # Risk metrics options
-        st.markdown("### 📈 Gösterilecek Metrikler")
-        show_individual_vol = st.checkbox("Bireysel Volatilite", value=True)
-        show_mrc = st.checkbox("Marjinal Risk Katkısı (MRC)", value=True)
-        show_beta = st.checkbox("Beta Katsayıları", value=True)
-        show_systematic = st.checkbox("Sistematik Risk Dağılımı", value=True)
+        # Display options
+        st.markdown("### 📈 Display Options")
+        show_individual_vol = st.checkbox("Individual Volatility", value=True)
+        show_mrc = st.checkbox("Marginal Risk Contribution (MRC)", value=True)
+        show_beta = st.checkbox("Beta Coefficients", value=True)
         
         st.markdown("---")
-        st.markdown("**Son Güncelleme:** " + datetime.now().strftime("%d.%m.%Y %H:%M"))
+        st.markdown(f"**Last Update:** {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+        st.markdown("**Status:** 🟢 Active")
     
-    # Main content area
+    # Main content
     try:
         # Fetch data
-        prices, returns, data_source = analyzer.fetch_data(start_date, end_date, use_demo)
+        with st.spinner("📥 Fetching real-time data from Yahoo Finance..."):
+            prices, returns = analyzer.fetch_yahoo_data(start_date, end_date)
         
         if prices is not None and returns is not None:
             
-            # Show data source indicator
-            if data_source == "demo":
-                st.info("📊 **Demo Modu**: Örnek veri seti kullanılıyor. Gerçek veri için lütfen daha sonra tekrar deneyin.")
-            else:
-                st.success(f"✅ Veri başarıyla indirildi ({data_source})")
+            # Display data summary
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Trading Days", len(returns))
+            with col2:
+                st.metric("Stocks Loaded", len(returns.columns))
+            with col3:
+                period_days = (end_date - start_date).days
+                st.metric("Period (Days)", period_days)
             
-            # Calculate portfolio weights
-            available_tickers = returns.columns.tolist()
-            
-            if portfolio_type == "Eşit Ağırlıklı":
-                weights = np.ones(len(available_tickers)) / len(available_tickers)
-                st.session_state['portfolio_type'] = 'equal'
+            # Calculate metrics based on portfolio type
+            if portfolio_type == "Equal Weight":
+                risk_metrics, portfolio_metrics, cov_matrix = analyzer.calculate_risk_metrics(returns)
             else:
                 # Calculate risk parity weights
-                cov_matrix = returns.cov() * 252
-                weights = analyzer.risk_parity_optimization(cov_matrix, available_tickers)
-                st.session_state['portfolio_type'] = 'risk_parity'
+                risk_metrics, portfolio_metrics, cov_matrix = analyzer.calculate_risk_metrics(returns)
+                rp_weights = analyzer.calculate_risk_parity(cov_matrix, returns.columns)
+                
+                # Update weights in risk_metrics
+                for i, symbol in enumerate(returns.columns):
+                    risk_metrics.loc[risk_metrics['Symbol'] == symbol, 'Weight'] = rp_weights[i]
+                
+                # Recalculate metrics with new weights
+                risk_metrics, portfolio_metrics, cov_matrix = analyzer.calculate_risk_metrics(returns)
             
-            # Calculate risk metrics
-            risk_metrics, portfolio_vol, cov_matrix = analyzer.calculate_risk_metrics(returns, weights)
-            
-            if risk_metrics is None:
-                st.error("Risk metrikleri hesaplanamadı. Lütfen farklı parametreler deneyin.")
-                return
-            
-            # Display key metrics in cards
-            st.markdown('<p class="sub-header">📌 Temel Portföy Metrikleri</p>', 
+            # Key Metrics Dashboard
+            st.markdown('<p class="sub-header">📌 Key Portfolio Metrics</p>', 
                        unsafe_allow_html=True)
             
-            col1, col2, col3, col4 = st.columns(4)
+            mcol1, mcol2, mcol3, mcol4 = st.columns(4)
             
-            with col1:
+            with mcol1:
                 st.metric(
-                    "Portföy Volatilitesi (Yıllık)",
-                    f"{portfolio_vol:.2%}",
-                    delta=None
+                    "Portfolio Volatility (Annual)",
+                    f"{portfolio_metrics['volatility']:.2%}"
                 )
             
-            with col2:
-                avg_vol = risk_metrics['Individual_Volatility'].mean()
+            with mcol2:
                 st.metric(
-                    "Ortalama Bireysel Volatilite",
-                    f"{avg_vol:.2%}",
-                    delta=f"{(avg_vol - portfolio_vol):.2%}",
-                    delta_color="inverse"
+                    "Average Individual Vol",
+                    f"{portfolio_metrics['avg_volatility']:.2%}"
                 )
             
-            with col3:
-                max_risk_contrib = risk_metrics.iloc[0]['Risk_Contribution_Pct']
+            with mcol3:
                 st.metric(
-                    "En Yüksek Risk Katkısı",
-                    f"{max_risk_contrib:.1f}%",
-                    delta=risk_metrics.iloc[0]['Şirket']
+                    "Diversification Ratio",
+                    f"{portfolio_metrics['diversification_ratio']:.2f}",
+                    help=">1.5 indicates good diversification"
                 )
             
-            with col4:
-                div_ratio = risk_metrics['Diversification_Ratio'].iloc[0]
+            with mcol4:
                 st.metric(
-                    "Çeşitlendirme Oranı",
-                    f"{div_ratio:.2f}",
-                    delta="İyi" if div_ratio > 1.5 else "Düşük",
-                    delta_color="normal" if div_ratio > 1.5 else "inverse"
+                    "Top Risk Contributor",
+                    portfolio_metrics['max_risk_asset'],
+                    f"{portfolio_metrics['max_risk_contrib']:.1f}%"
                 )
             
-            # Show number of assets included
-            st.caption(f"Analiz edilen hisse sayısı: {len(risk_metrics)} / 20")
-            
-            # Risk contribution visualization
-            st.markdown('<p class="sub-header">🎯 Risk Katkı Dağılımı</p>', 
+            # Risk Contribution Analysis
+            st.markdown('<p class="sub-header">🎯 Risk Contribution Analysis</p>', 
                        unsafe_allow_html=True)
             
-            col1, col2 = st.columns([2, 1])
+            # Create two columns for charts
+            chart_col1, chart_col2 = st.columns([2, 1])
             
-            with col1:
-                # Create bar chart
+            with chart_col1:
+                # Horizontal bar chart of risk contributions
                 fig = go.Figure()
                 
+                # Sort for better visualization
+                sorted_df = risk_metrics.sort_values('Risk_Contribution_%', ascending=True)
+                
                 fig.add_trace(go.Bar(
-                    y=risk_metrics['Şirket'],
-                    x=risk_metrics['Risk_Contribution_Pct'],
+                    y=sorted_df['Company'],
+                    x=sorted_df['Risk_Contribution_%'],
                     orientation='h',
                     marker=dict(
-                        color=risk_metrics['Risk_Contribution_Pct'],
+                        color=sorted_df['Risk_Contribution_%'],
                         colorscale='RdYlGn_r',
                         showscale=True,
                         colorbar=dict(title="Risk %")
                     ),
-                    text=risk_metrics['Risk_Contribution_Pct'].round(1).astype(str) + '%',
+                    text=sorted_df['Risk_Contribution_%'].round(1).astype(str) + '%',
                     textposition='outside',
-                    name='Risk Katkısı'
+                    name='Risk Contribution'
                 ))
                 
-                # Add reference line for equal contribution
-                equal_contrib = 100 / len(risk_metrics)
-                fig.add_vline(x=equal_contrib, line_dash="dash", 
-                             line_color="red", opacity=0.5,
-                             annotation_text=f"Eşit Risk Hedefi ({equal_contrib:.1f}%)")
+                # Equal contribution reference line
+                equal_contrib = 100 / len(sorted_df)
+                fig.add_vline(
+                    x=equal_contrib, 
+                    line_dash="dash", 
+                    line_color="red",
+                    opacity=0.7,
+                    annotation_text=f"Equal Risk Target ({equal_contrib:.1f}%)"
+                )
                 
                 fig.update_layout(
-                    title="Hisse Bazında Risk Katkıları (Sıralanmış)",
-                    xaxis_title="Risk Katkısı (%)",
+                    title="Risk Contribution by Asset (Ranked)",
+                    xaxis_title="Risk Contribution (%)",
                     yaxis_title="",
                     height=600,
                     showlegend=False,
@@ -574,32 +489,37 @@ def main():
                 
                 st.plotly_chart(fig, use_container_width=True)
             
-            with col2:
-                # Pie chart of top 5 vs others
-                top_5 = risk_metrics.head(5)['Risk_Contribution_Pct'].sum()
-                rest = 100 - top_5
+            with chart_col2:
+                # Concentration pie chart
+                top_3 = sorted_df.tail(3)['Risk_Contribution_%'].sum()
+                top_5 = sorted_df.tail(5)['Risk_Contribution_%'].sum()
+                others = 100 - top_5
                 
                 fig = go.Figure(data=[go.Pie(
-                    labels=['İlk 5 Hisse', 'Diğer'],
-                    values=[top_5, rest],
-                    hole=.4,
-                    marker_colors=['#DC2626', '#6B7280']
+                    labels=['Top 3 Contributors', 'Next 2 Contributors', 'Remaining 15'],
+                    values=[top_3, top_5 - top_3, others],
+                    hole=0.4,
+                    marker_colors=['#DC2626', '#F59E0B', '#10B981']
                 )])
                 
                 fig.update_layout(
-                    title="Risk Yoğunlaşması",
-                    annotations=[dict(text=f'%{top_5:.1f}', x=0.5, y=0.5, 
-                                     font_size=20, showarrow=False)]
+                    title="Risk Concentration Analysis",
+                    annotations=[dict(
+                        text=f'Top 3: {top_3:.1f}%',
+                        x=0.5, y=0.5,
+                        font_size=14,
+                        showarrow=False
+                    )]
                 )
                 
                 st.plotly_chart(fig, use_container_width=True)
             
-            # Detailed metrics table
-            st.markdown('<p class="sub-header">📋 Detaylı Risk Metrikleri Tablosu</p>', 
+            # Detailed Metrics Table
+            st.markdown('<p class="sub-header">📋 Detailed Risk Metrics</p>', 
                        unsafe_allow_html=True)
             
-            # Prepare display table
-            display_cols = ['Risk_Rank', 'Şirket', 'Sektör', 'Weight']
+            # Prepare display columns
+            display_cols = ['Risk_Rank', 'Company', 'Sector', 'Weight', 'Risk_Contribution_%']
             
             if show_individual_vol:
                 display_cols.append('Individual_Volatility')
@@ -612,6 +532,7 @@ def main():
             
             # Format columns
             display_df['Weight'] = display_df['Weight'].map('{:.1%}'.format)
+            display_df['Risk_Contribution_%'] = display_df['Risk_Contribution_%'].map('{:.1f}%'.format)
             
             if show_individual_vol:
                 display_df['Individual_Volatility'] = display_df['Individual_Volatility'].map('{:.1%}'.format)
@@ -620,13 +541,14 @@ def main():
             if show_beta:
                 display_df['Beta'] = display_df['Beta'].map('{:.2f}'.format)
             
-            # Rename columns for display
+            # Rename columns
             column_names = {
-                'Risk_Rank': 'Sıra',
-                'Şirket': 'Şirket',
-                'Sektör': 'Sektör',
-                'Weight': 'Ağırlık',
-                'Individual_Volatility': 'Bireysel Vol',
+                'Risk_Rank': 'Rank',
+                'Company': 'Company',
+                'Sector': 'Sector',
+                'Weight': 'Weight',
+                'Risk_Contribution_%': 'Risk %',
+                'Individual_Volatility': 'Indiv Vol',
                 'Marginal_Risk_Contribution': 'MRC',
                 'Beta': 'Beta'
             }
@@ -636,58 +558,136 @@ def main():
             st.dataframe(
                 display_df,
                 use_container_width=True,
-                hide_index=True
+                hide_index=True,
+                column_config={
+                    "Risk %": st.column_config.ProgressColumn(
+                        "Risk Contribution",
+                        help="Percentage of total portfolio risk",
+                        format="%s",
+                        min_value=0,
+                        max_value=100
+                    )
+                }
             )
             
-            # Risk parity recommendations (only for equal weight)
-            if portfolio_type == "Eşit Ağırlıklı" and not use_demo:
-                st.markdown('<p class="sub-header">⚖️ Risk Parity Optimizasyon Önerileri</p>', 
+            # Risk Parity Recommendations (for Equal Weight portfolio)
+            if portfolio_type == "Equal Weight":
+                st.markdown('<p class="sub-header">⚖️ Risk Parity Recommendations</p>', 
                            unsafe_allow_html=True)
                 
-                # Calculate risk parity weights
-                rp_weights = analyzer.risk_parity_optimization(cov_matrix, available_tickers)
+                rp_weights = analyzer.calculate_risk_parity(cov_matrix, returns.columns)
                 
-                # Calculate adjustments
+                # Create recommendations
                 recommendations = []
-                for i, ticker in enumerate(available_tickers):
-                    current_w = weights[i]
+                for i, symbol in enumerate(returns.columns):
+                    current_w = 1/len(returns.columns)
                     rp_w = rp_weights[i]
                     adjustment = rp_w - current_w
                     
+                    company = analyzer.asset_names.get(symbol, symbol)
+                    sector = analyzer.sectors.get(symbol, 'Other')
+                    
+                    action = 'REDUCE' if adjustment < -0.002 else 'INCREASE' if adjustment > 0.002 else 'MAINTAIN'
+                    
                     recommendations.append({
-                        'Şirket': analyzer.asset_names.get(ticker, ticker),
-                        'Sektör': analyzer.sectors.get(ticker, 'Diğer'),
-                        'Mevcut Ağırlık': f"{current_w:.1%}",
-                        'Risk Parity Ağırlık': f"{rp_w:.1%}",
-                        'Değişim': f"{adjustment:+.1%}",
-                        'Öneri': 'AZALT' if adjustment < -0.005 else 'ARTTIR' if adjustment > 0.005 else 'KORU'
+                        'Company': company,
+                        'Sector': sector,
+                        'Current Weight': f"{current_w:.1%}",
+                        'Risk Parity Weight': f"{rp_w:.1%}",
+                        'Adjustment': f"{adjustment:+.1%}",
+                        'Action': action
                     })
                 
                 rec_df = pd.DataFrame(recommendations)
                 
+                # Color coding for actions
+                def color_action(val):
+                    if val == 'REDUCE':
+                        return 'background-color: #FEE2E2; color: #DC2626'
+                    elif val == 'INCREASE':
+                        return 'background-color: #DCFCE7; color: #059669'
+                    else:
+                        return 'background-color: #F3F4F6; color: #6B7280'
+                
+                styled_rec = rec_df.style.applymap(color_action, subset=['Action'])
+                
                 st.dataframe(
-                    rec_df,
+                    styled_rec,
                     use_container_width=True,
                     hide_index=True
                 )
-            
-            # Download button
-            if st.button("📥 Raporu İndir (CSV)"):
-                csv = risk_metrics.to_csv(index=False)
+                
+                # Download button
+                csv = rec_df.to_csv(index=False)
                 st.download_button(
-                    label="CSV dosyasını indir",
+                    label="📥 Download Recommendations (CSV)",
                     data=csv,
-                    file_name=f"bist50_risk_raporu_{datetime.now().strftime('%Y%m%d')}.csv",
+                    file_name=f"risk_parity_recommendations_{datetime.now().strftime('%Y%m%d')}.csv",
                     mime="text/csv"
                 )
+            
+            # Sector Analysis
+            st.markdown('<p class="sub-header">🏭 Sector Risk Analysis</p>', 
+                       unsafe_allow_html=True)
+            
+            sector_analysis = risk_metrics.groupby('Sector').agg({
+                'Risk_Contribution_%': 'sum',
+                'Weight': 'sum'
+            }).round(1)
+            
+            sector_analysis.columns = ['Total Risk %', 'Total Weight %']
+            sector_analysis = sector_analysis.sort_values('Total Risk %', ascending=False)
+            
+            # Create sector comparison chart
+            fig = go.Figure()
+            
+            fig.add_trace(go.Bar(
+                name='Risk Contribution',
+                x=sector_analysis.index,
+                y=sector_analysis['Total Risk %'],
+                marker_color='#EF4444'
+            ))
+            
+            fig.add_trace(go.Bar(
+                name='Portfolio Weight',
+                x=sector_analysis.index,
+                y=sector_analysis['Total Weight %'],
+                marker_color='#3B82F6'
+            ))
+            
+            fig.update_layout(
+                title="Sector Risk vs Weight Allocation",
+                xaxis_title="Sector",
+                yaxis_title="Percentage (%)",
+                barmode='group',
+                height=400,
+                xaxis_tickangle=-45
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Export full report
+            if st.button("📊 Generate Full Report"):
+                output = pd.ExcelWriter('risk_report.xlsx', engine='xlsxwriter')
+                
+                risk_metrics.to_excel(output, sheet_name='Risk Metrics', index=False)
+                if portfolio_type == "Equal Weight":
+                    rec_df.to_excel(output, sheet_name='Recommendations', index=False)
+                sector_analysis.to_excel(output, sheet_name='Sector Analysis')
+                
+                output.close()
+                
+                with open('risk_report.xlsx', 'rb') as f:
+                    st.download_button(
+                        label="📥 Download Full Report (Excel)",
+                        data=f,
+                        file_name=f"bist50_risk_report_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
     
     except Exception as e:
-        st.error(f"Bir hata oluştu: {str(e)}")
-        st.exception(e)
-        
-        # Offer demo mode as fallback
-        if st.button("📊 Demo Modunda Çalıştır"):
-            st.rerun()
+        st.error(f"An error occurred: {str(e)}")
+        st.info("Please try refreshing the page or contact support if the issue persists.")
 
 if __name__ == "__main__":
     main()
