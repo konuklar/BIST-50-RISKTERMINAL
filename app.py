@@ -4,7 +4,6 @@ import numpy as np
 import yfinance as yf
 import plotly.express as px
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 from scipy.optimize import minimize
 from datetime import datetime, timedelta
 import time
@@ -34,17 +33,18 @@ st.markdown("""
         font-weight: 600;
         margin-bottom: 0.5rem;
     }
-    .metric-card {
-        background-color: #F3F4F6;
-        padding: 1rem;
-        border-radius: 0.5rem;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.12);
-    }
     .success-box {
         background-color: #DCFCE7;
         padding: 1rem;
         border-radius: 0.5rem;
         border-left: 4px solid #059669;
+        margin: 1rem 0;
+    }
+    .warning-box {
+        background-color: #FEF3C7;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        border-left: 4px solid #D97706;
         margin: 1rem 0;
     }
     .error-box {
@@ -60,7 +60,8 @@ st.markdown("""
 class BIST50RiskAnalyzer:
     """Risk Budgeting Analysis for BIST 50 Stocks using Yahoo Finance"""
     
-    # CORRECT Yahoo Finance BIST tickers (verified working)
+    # CORRECT Yahoo Finance BIST tickers (verified working as of 2024)
+    # Format: TICKER.IS is the correct format for BIST stocks
     tickers = [
         'AKBNK.IS', 'ARCLK.IS', 'ASELS.IS', 'BIMAS.IS', 'EKGYO.IS',
         'EREGL.IS', 'FROTO.IS', 'GARAN.IS', 'HALKB.IS', 'ISCTR.IS',
@@ -68,15 +69,7 @@ class BIST50RiskAnalyzer:
         'SAHOL.IS', 'SASA.IS', 'TCELL.IS', 'THYAO.IS', 'TOASO.IS'
     ]
     
-    # Alternative ticker formats (backup)
-    backup_tickers = [
-        'AKBNK.IS', 'ARCLK.IS', 'ASELS.IS', 'BIMAS.IS', 'EKGYO.IS',
-        'EREGL.IS', 'FROTO.IS', 'GARAN.IS', 'HALKB.IS', 'ISCTR.IS',
-        'KCHOL.IS', 'KOZAL.IS', 'KRDMD.IS', 'PETKM.IS', 'PGSUS.IS',
-        'SAHOL.IS', 'SASA.IS', 'TCELL.IS', 'THYAO.IS', 'TOASO.IS'
-    ]
-    
-    # Company names
+    # Company names mapping
     asset_names = {
         'AKBNK.IS': 'Akbank',
         'ARCLK.IS': 'Arcelik',
@@ -100,7 +93,7 @@ class BIST50RiskAnalyzer:
         'TOASO.IS': 'Tofas'
     }
     
-    # Sectors
+    # Sectors mapping
     sectors = {
         'AKBNK.IS': 'Banking',
         'ARCLK.IS': 'Industrial',
@@ -124,11 +117,26 @@ class BIST50RiskAnalyzer:
         'TOASO.IS': 'Automotive'
     }
     
+    def __init__(self):
+        self.session = requests.Session()
+        self.session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        })
+    
+    @st.cache_data(ttl=3600, show_spinner=False)
+    def test_yahoo_connection(_self):
+        """Test if Yahoo Finance is accessible"""
+        try:
+            test_ticker = yf.Ticker('AKBNK.IS')
+            test_data = test_ticker.history(period="5d")
+            return not test_data.empty
+        except:
+            return False
+    
     @st.cache_data(ttl=3600, show_spinner=False)
     def fetch_yahoo_data(_self, start_date, end_date):
         """
-        Fetch data directly from Yahoo Finance with proper error handling
-        Uses individual fetching for better reliability
+        Fetch data from Yahoo Finance with optimized batch downloading
         """
         
         try:
@@ -136,87 +144,77 @@ class BIST50RiskAnalyzer:
             start_str = start_date.strftime('%Y-%m-%d')
             end_str = end_date.strftime('%Y-%m-%d')
             
-            # Progress bar
+            # Progress indicators
             progress_bar = st.progress(0)
             status_text = st.empty()
             
-            # Dictionary to store price data
-            price_data = {}
-            failed_tickers = []
+            # Use batch download for better performance
+            status_text.text("Connecting to Yahoo Finance...")
             
-            # Fetch each ticker individually (more reliable)
-            for i, ticker in enumerate(_self.tickers):
-                status_text.text(f"Fetching {_self.asset_names.get(ticker, ticker)}...")
-                
-                try:
-                    # Create ticker object
-                    stock = yf.Ticker(ticker)
-                    
-                    # Get historical data
-                    hist = stock.history(start=start_str, end=end_str)
-                    
-                    if not hist.empty:
-                        price_data[ticker] = hist['Close']
+            # Download all tickers at once (more efficient)
+            data = yf.download(
+                tickers=_self.tickers,
+                start=start_str,
+                end=end_str,
+                progress=False,
+                group_by='ticker',
+                auto_adjust=True,
+                timeout=30,
+                threads=True
+            )
+            
+            progress_bar.progress(0.5)
+            status_text.text("Processing data...")
+            
+            if data.empty:
+                progress_bar.empty()
+                status_text.empty()
+                return None, None, _self.tickers
+            
+            # Extract Adjusted Close prices
+            try:
+                if len(_self.tickers) == 1:
+                    prices = pd.DataFrame({_self.tickers[0]: data['Adj Close']})
+                else:
+                    # Try to get Adj Close from multi-index
+                    if isinstance(data.columns, pd.MultiIndex):
+                        prices = data.xs('Adj Close', axis=1, level=0)
                     else:
-                        # Try backup ticker format
-                        if ticker in _self.backup_tickers:
-                            backup_idx = _self.backup_tickers.index(ticker)
-                            backup_ticker = _self.backup_tickers[backup_idx]
-                            stock = yf.Ticker(backup_ticker)
-                            hist = stock.history(start=start_str, end=end_str)
-                            if not hist.empty:
-                                price_data[ticker] = hist['Close']
-                            else:
-                                failed_tickers.append(ticker)
-                        else:
-                            failed_tickers.append(ticker)
-                    
-                except Exception as e:
-                    failed_tickers.append(ticker)
-                
-                # Update progress
-                progress_bar.progress((i + 1) / len(_self.tickers))
-                
-                # Small delay to avoid rate limiting
-                time.sleep(0.5)
+                        # Fallback to Close prices
+                        prices = data['Close'] if 'Close' in data else data
+            except:
+                # Final fallback
+                prices = data
             
-            # Clear progress indicators
-            progress_bar.empty()
-            status_text.empty()
+            progress_bar.progress(0.75)
             
-            # Check if we have any data
-            if not price_data:
-                st.error("❌ No data received from Yahoo Finance")
-                st.info("Please check:")
-                st.info("1. Your internet connection")
-                st.info("2. Yahoo Finance service status")
-                st.info("3. Try a different date range")
-                return None, None, failed_tickers
+            # Ensure we have a DataFrame
+            if isinstance(prices, pd.Series):
+                prices = pd.DataFrame(prices)
             
-            # Create DataFrame from successful downloads
-            prices = pd.DataFrame(price_data)
-            
-            # Sort index to ensure chronological order
+            # Clean data
             prices = prices.sort_index()
-            
-            # Forward fill missing values (max 3 days for holidays)
-            prices = prices.fillna(method='ffill', limit=3)
-            
-            # Remove any remaining NaN rows
+            prices = prices.ffill(limit=3)
             prices = prices.dropna()
             
             # Calculate returns
             returns = prices.pct_change().dropna()
             
+            # Identify successful and failed tickers
+            successful_tickers = prices.columns.tolist()
+            failed_tickers = [t for t in _self.tickers if t not in successful_tickers]
+            
+            progress_bar.empty()
+            status_text.empty()
+            
             if returns.empty:
-                st.error("❌ No valid returns data could be calculated")
-                return None, None, failed_tickers
+                return None, None, _self.tickers
             
             return prices, returns, failed_tickers
             
         except Exception as e:
-            st.error(f"❌ Yahoo Finance connection error: {str(e)}")
-            return None, None, []
+            st.error(f"Yahoo Finance connection error: {str(e)}")
+            return None, None, _self.tickers
     
     def calculate_risk_metrics(self, returns):
         """Calculate comprehensive risk metrics for equally weighted portfolio"""
@@ -224,7 +222,7 @@ class BIST50RiskAnalyzer:
         n_assets = len(returns.columns)
         weights = np.ones(n_assets) / n_assets
         
-        # Annualized covariance matrix (252 trading days)
+        # Annualized covariance matrix
         cov_matrix = returns.cov() * 252
         
         # Portfolio metrics
@@ -381,14 +379,39 @@ def main():
         
         st.markdown("---")
         st.markdown(f"**Last Update:** {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+        
+        # Yahoo Finance Status
+        if analyzer.test_yahoo_connection():
+            st.markdown("✅ **Yahoo Finance:** Connected")
+        else:
+            st.markdown("⚠️ **Yahoo Finance:** Checking...")
     
     # Main content
     try:
-        # Fetch data with individual ticker approach
-        with st.spinner("📥 Connecting to Yahoo Finance..."):
+        # Test connection first
+        if not analyzer.test_yahoo_connection():
+            st.markdown("""
+            <div class="warning-box">
+                ⚠️ Yahoo Finance connection is unstable. Please wait a moment and try refreshing.
+                <br><br>
+                <strong>Troubleshooting:</strong>
+                <ul>
+                    <li>Check your internet connection</li>
+                    <li>Try a different date range</li>
+                    <li>Refresh the page in 1-2 minutes</li>
+                </ul>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            if st.button("🔄 Retry Connection"):
+                st.cache_data.clear()
+                st.rerun()
+        
+        # Fetch data
+        with st.spinner("📥 Fetching data from Yahoo Finance..."):
             prices, returns, failed_tickers = analyzer.fetch_yahoo_data(start_date, end_date)
         
-        if prices is not None and returns is not None:
+        if prices is not None and returns is not None and not returns.empty:
             
             # Show success message
             st.markdown("""
@@ -399,8 +422,14 @@ def main():
             
             # Show failed tickers if any
             if failed_tickers:
-                st.warning(f"⚠️ {len(failed_tickers)} tickers failed to load. Working with {len(returns.columns)} stocks.")
-                with st.expander("View failed tickers"):
+                st.markdown(f"""
+                <div class="warning-box">
+                    ⚠️ {len(failed_tickers)} out of 20 tickers could not be loaded.
+                    Working with {len(returns.columns)} stocks.
+                </div>
+                """, unsafe_allow_html=True)
+                
+                with st.expander("View unavailable tickers"):
                     for ticker in failed_tickers:
                         st.write(f"- {ticker} ({analyzer.asset_names.get(ticker, ticker)})")
             
@@ -409,7 +438,7 @@ def main():
             with col1:
                 st.metric("Trading Days", len(returns))
             with col2:
-                st.metric("Stocks Loaded", len(returns.columns))
+                st.metric("Stocks Analyzed", len(returns.columns))
             with col3:
                 period_days = (end_date - start_date).days
                 st.metric("Analysis Period", f"{period_days} days")
@@ -439,12 +468,11 @@ def main():
             
             with mcol3:
                 div_ratio = portfolio_metrics['diversification_ratio']
-                delta_color = "normal" if div_ratio > 1.5 else "inverse"
                 st.metric(
                     "Diversification Ratio",
                     f"{div_ratio:.2f}",
                     delta="Good" if div_ratio > 1.5 else "Low",
-                    delta_color=delta_color,
+                    delta_color="normal" if div_ratio > 1.5 else "inverse",
                     help=">1.5 indicates good diversification"
                 )
             
@@ -460,84 +488,57 @@ def main():
             st.markdown('<p class="sub-header">🎯 Risk Contribution Analysis</p>', 
                        unsafe_allow_html=True)
             
-            # Create two columns for charts
-            chart_col1, chart_col2 = st.columns([2, 1])
+            # Horizontal bar chart of risk contributions
+            fig = go.Figure()
             
-            with chart_col1:
-                # Horizontal bar chart of risk contributions
-                fig = go.Figure()
-                
-                # Sort for better visualization
-                sorted_df = risk_metrics.sort_values('Risk_Contribution_%', ascending=True)
-                
-                # Color based on contribution relative to target
-                equal_contrib = 100 / len(sorted_df)
-                colors = ['#DC2626' if x > equal_contrib * 1.2 
-                         else '#10B981' if x < equal_contrib * 0.8 
-                         else '#F59E0B' for x in sorted_df['Risk_Contribution_%']]
-                
-                fig.add_trace(go.Bar(
-                    y=sorted_df['Company'],
-                    x=sorted_df['Risk_Contribution_%'],
-                    orientation='h',
-                    marker_color=colors,
-                    text=sorted_df['Risk_Contribution_%'].round(1).astype(str) + '%',
-                    textposition='outside',
-                    name='Risk Contribution'
-                ))
-                
-                # Equal contribution reference line
-                fig.add_vline(
-                    x=equal_contrib, 
-                    line_dash="dash", 
-                    line_color="red",
-                    opacity=0.7,
-                    annotation_text=f"Target ({equal_contrib:.1f}%)"
-                )
-                
-                fig.update_layout(
-                    title="Risk Contribution by Asset",
-                    xaxis_title="Risk Contribution (%)",
-                    yaxis_title="",
-                    height=600,
-                    showlegend=False,
-                    hovermode='y',
-                    xaxis=dict(range=[0, max(sorted_df['Risk_Contribution_%']) * 1.1])
-                )
-                
-                st.plotly_chart(fig, use_container_width=True)
+            sorted_df = risk_metrics.sort_values('Risk_Contribution_%', ascending=True)
             
-            with chart_col2:
-                # MRC Analysis
-                mrc_df = risk_metrics[['Company', 'Marginal_Risk_Contribution']].copy()
-                mrc_df = mrc_df.sort_values('Marginal_Risk_Contribution', ascending=True)
-                
-                colors_mrc = ['#DC2626' if x > 1 
-                              else '#10B981' if x < 0.8 
-                              else '#F59E0B' for x in mrc_df['Marginal_Risk_Contribution']]
-                
-                fig2 = go.Figure()
-                fig2.add_trace(go.Bar(
-                    y=mrc_df['Company'],
-                    x=mrc_df['Marginal_Risk_Contribution'],
-                    orientation='h',
-                    marker_color=colors_mrc,
-                    text=mrc_df['Marginal_Risk_Contribution'].round(3),
-                    textposition='outside'
-                ))
-                
-                fig2.add_vline(x=1, line_dash="dash", line_color="red", 
-                              annotation_text="MRC=1")
-                
-                fig2.update_layout(
-                    title="Marginal Risk Contributions (MRC)",
-                    xaxis_title="MRC",
-                    yaxis_title="",
-                    height=600,
-                    showlegend=False
-                )
-                
-                st.plotly_chart(fig2, use_container_width=True)
+            # Color based on contribution relative to target
+            equal_contrib = 100 / len(sorted_df)
+            colors = []
+            for x in sorted_df['Risk_Contribution_%']:
+                if x > equal_contrib * 1.2:
+                    colors.append('#DC2626')  # Red for high contribution
+                elif x < equal_contrib * 0.8:
+                    colors.append('#10B981')  # Green for low contribution
+                else:
+                    colors.append('#F59E0B')  # Orange for near target
+            
+            fig.add_trace(go.Bar(
+                y=sorted_df['Company'],
+                x=sorted_df['Risk_Contribution_%'],
+                orientation='h',
+                marker_color=colors,
+                text=sorted_df['Risk_Contribution_%'].round(1).astype(str) + '%',
+                textposition='outside',
+                name='Risk Contribution',
+                hovertemplate='<b>%{y}</b><br>' +
+                              'Risk Contribution: %{x:.1f}%<br>' +
+                              'Sector: %{customdata}<br>' +
+                              '<extra></extra>',
+                customdata=sorted_df['Sector']
+            ))
+            
+            # Equal contribution reference line
+            fig.add_vline(
+                x=equal_contrib, 
+                line_dash="dash", 
+                line_color="red",
+                opacity=0.7,
+                annotation_text=f"Equal Risk Target ({equal_contrib:.1f}%)"
+            )
+            
+            fig.update_layout(
+                title="Risk Contribution by Asset (Ranked)",
+                xaxis_title="Risk Contribution (%)",
+                yaxis_title="",
+                height=600,
+                showlegend=False,
+                hovermode='y',
+                xaxis=dict(range=[0, max(sorted_df['Risk_Contribution_%']) * 1.1])
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
             
             # Detailed Metrics Table
             st.markdown('<p class="sub-header">📋 Detailed Risk Metrics</p>', 
@@ -625,19 +626,9 @@ def main():
                 
                 rec_df = pd.DataFrame(recommendations)
                 
-                # Color coding for actions
-                def color_action(val):
-                    if val == 'REDUCE':
-                        return 'background-color: #FEE2E2; color: #DC2626; font-weight: 600'
-                    elif val == 'INCREASE':
-                        return 'background-color: #DCFCE7; color: #059669; font-weight: 600'
-                    else:
-                        return 'background-color: #F3F4F6; color: #6B7280'
-                
-                styled_rec = rec_df.style.applymap(color_action, subset=['Action'])
-                
+                # Display recommendations
                 st.dataframe(
-                    styled_rec,
+                    rec_df,
                     use_container_width=True,
                     hide_index=True
                 )
@@ -651,47 +642,6 @@ def main():
                     mime="text/csv"
                 )
             
-            # Sector Analysis
-            if len(returns.columns) > 1:
-                st.markdown('<p class="sub-header">🏭 Sector Risk Analysis</p>', 
-                           unsafe_allow_html=True)
-                
-                sector_analysis = risk_metrics.groupby('Sector').agg({
-                    'Risk_Contribution_%': 'sum',
-                    'Weight': 'sum'
-                }).round(1)
-                
-                sector_analysis.columns = ['Total Risk %', 'Total Weight %']
-                sector_analysis = sector_analysis.sort_values('Total Risk %', ascending=False)
-                
-                # Create sector comparison chart
-                fig = go.Figure()
-                
-                fig.add_trace(go.Bar(
-                    name='Risk Contribution',
-                    x=sector_analysis.index,
-                    y=sector_analysis['Total Risk %'],
-                    marker_color='#EF4444'
-                ))
-                
-                fig.add_trace(go.Bar(
-                    name='Portfolio Weight',
-                    x=sector_analysis.index,
-                    y=sector_analysis['Total Weight %'],
-                    marker_color='#3B82F6'
-                ))
-                
-                fig.update_layout(
-                    title="Sector Risk vs Weight Allocation",
-                    xaxis_title="Sector",
-                    yaxis_title="Percentage (%)",
-                    barmode='group',
-                    height=400,
-                    xaxis_tickangle=-45
-                )
-                
-                st.plotly_chart(fig, use_container_width=True)
-            
             # Export option
             if st.button("📊 Generate Excel Report"):
                 output = pd.ExcelWriter('risk_report.xlsx', engine='xlsxwriter')
@@ -700,9 +650,6 @@ def main():
                 
                 if portfolio_type == "Equal Weight" and len(returns.columns) > 1:
                     rec_df.to_excel(output, sheet_name='Recommendations', index=False)
-                
-                if len(returns.columns) > 1:
-                    sector_analysis.to_excel(output, sheet_name='Sector Analysis')
                 
                 # Add summary sheet
                 summary = pd.DataFrame({
@@ -735,9 +682,10 @@ def main():
         st.info("""
         **Troubleshooting Steps:**
         1. Check your internet connection
-        2. Try refreshing the page
-        3. Select a different date range
-        4. Try again in a few minutes
+        2. Visit finance.yahoo.com to verify it's accessible
+        3. Try a different date range (some historical data might be unavailable)
+        4. Wait a few minutes and refresh
+        5. If problem persists, Yahoo Finance API might be temporarily down
         """)
 
 if __name__ == "__main__":
