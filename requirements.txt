@@ -1,11 +1,18 @@
-streamlit==1.28.0
-pandas==2.0.3
-numpy==1.24.3
-yfinance==0.2.28
-plotly==5.17.0
-matplotlib==3.7.2
-seaborn==0.12.2
-scipy==1.11.2
-openpyxl==3.1.2
-pillow==10.0.0
-requests==2.31.0
+
+# Streamlit Community Cloud app dependencies
+# Put this file at your repo root (same folder as app.py)
+
+numpy>=1.23
+pandas>=2.0
+scipy>=1.10
+yfinance>=0.2.36
+plotly>=5.18
+requests>=2.31
+lxml>=4.9
+
+# Export helpers
+openpyxl>=3.1
+xlsxwriter>=3.1
+
+# Community Cloud has streamlit preinstalled, but pinning is useful.
+streamlit>=1.32
